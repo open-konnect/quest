@@ -1,0 +1,92 @@
+# Persistent Volume
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: quest-sqlite-pv
+spec:
+  capacity:
+    storage: 10Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /mnt/data/quest-db
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: quest-sqlite-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Mi
+---
+# Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: quest-backend
+spec:
+  selector:
+    app: quest-backend
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+---
+# Backend Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quest-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quest-backend
+  template:
+    metadata:
+      labels:
+        app: quest-backend
+    spec:
+      containers:
+        - name: quest-backend
+          image: quest-backend:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - mountPath: /data
+              name: quest-db-storage
+          env:
+            - name: DB_PATH
+              value: "/data/quest-db.sqlite"
+            - name: JAVA_OPTS
+              value: "Xms100m -Xmx100m"
+            - name: SERVER_PORT
+              value: "8080"
+      volumes:
+        - name: quest-db-storage
+          persistentVolumeClaim:
+            claimName: quest-sqlite-pvc
+---
+# Ingress for Backend APIs
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: quest-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  rules:
+    - host: quest-backend.local
+      http:
+        paths:
+          - path: /
+            backend:
+              service:
+                name: quest-backend
+                port:
+                  number: 8080
